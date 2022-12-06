@@ -1,6 +1,8 @@
 const express = require("express");
 const mongodb = require("mongodb");
+
 const db = require("../data/database");
+
 const ObjectId = mongodb.ObjectId;
 
 const router = express.Router();
@@ -13,12 +15,10 @@ router.get("/posts", async function (req, res) {
   const posts = await db
     .getDb()
     .collection("posts")
-    .find({})
-    .project({ title: 1, summary: 1, "author.name": 1 })
+    .find({}, { title: 1, summary: 1, "author.name": 1 })
     .toArray();
   res.render("posts-list", { posts: posts });
 });
-// we can also use .find({}, { title: 1, summary: 1, "author.name": 1 }) as we do in the mongodb terminal
 
 router.get("/new-post", async function (req, res) {
   const authors = await db.getDb().collection("authors").find().toArray();
@@ -50,37 +50,25 @@ router.post("/posts", async function (req, res) {
 });
 
 router.get("/posts/:id", async function (req, res) {
-  let postId = req.params.id;
-
-  try {
-    postId = new ObjectId(postId);
-  } catch (error) {
-    return res.status(404).render("404");
-    // here our error handlers do not work when user get wrong _id, so our server crashes, to prevent that we use try-catch statement
-    // we can also do with next() method, where we add next parameter in function and that next(error) will catch the error.
-
-    // in async functions we have to manually handle errors which can occur due to the content it creates. this is the drawback of expressJS. However we should manually handle possible errors in order to save the crash page.
-  }
-
+  const postId = req.params.id;
   const post = await db
     .getDb()
     .collection("posts")
-    .findOne({ _id: postId }, { summary: 0 });
+    .findOne({ _id: new ObjectId(postId) }, { summary: 0 });
 
   if (!post) {
     return res.status(404).render("404");
   }
 
-  post.humanReadableDate = post.date.toLocaleDateString("en-GB", {
+  post.humanReadableDate = post.date.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
   });
-
   post.date = post.date.toISOString();
 
-  res.render("post-detail", { post: post });
+  res.render("post-detail", { post: post, comments: null });
 });
 
 router.get("/posts/:id/edit", async function (req, res) {
@@ -99,7 +87,8 @@ router.get("/posts/:id/edit", async function (req, res) {
 
 router.post("/posts/:id/edit", async function (req, res) {
   const postId = new ObjectId(req.params.id);
-  db.getDb()
+  const result = await db
+    .getDb()
     .collection("posts")
     .updateOne(
       { _id: postId },
@@ -108,7 +97,7 @@ router.post("/posts/:id/edit", async function (req, res) {
           title: req.body.title,
           summary: req.body.summary,
           body: req.body.content,
-          date: new Date(), // optional if you want to update date to new date.
+          // date: new Date()
         },
       }
     );
@@ -122,8 +111,29 @@ router.post("/posts/:id/delete", async function (req, res) {
     .getDb()
     .collection("posts")
     .deleteOne({ _id: postId });
-
   res.redirect("/posts");
+});
+
+router.get("/posts/:id/comments", async function (req, res) {
+  const postId = new ObjectId(req.params.id);
+  const comments = await db
+    .getDb()
+    .collection("comments")
+    .find({ postId: postId })
+    .toArray();
+
+  res.json(comments);
+});
+
+router.post("/posts/:id/comments", async function (req, res) {
+  const postId = new ObjectId(req.params.id);
+  const newComment = {
+    postId: postId,
+    title: req.body.title,
+    text: req.body.text,
+  };
+  await db.getDb().collection("comments").insertOne(newComment);
+  res.json({ message: "Comment Added!" });
 });
 
 module.exports = router;
